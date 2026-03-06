@@ -2,10 +2,10 @@ import os
 import sys
 import zipfile
 import requests
-import subprocess
 import pygame
 import yaml
 from pathlib import Path
+import shutil
 
 # ==============================
 # Directories
@@ -20,20 +20,57 @@ SONGS_DIR.mkdir(exist_ok=True)
 ENGINE_DIR.mkdir(exist_ok=True)
 
 HOME = Path.home()
-OSU_DIR = HOME / "AppData" / "Local" / "osu!" / "Songs"
-POSSIBLE_STEAM_DIRS = [
-    Path("C:/Program Files (x86)/Steam"),
-    Path("C:/Program Files/Steam"),
-    HOME / "AppData" / "Local" / "Steam"
+
+# ==============================
+# POSSIBLE GAME DIRS
+# ==============================
+
+POSSIBLE_OSU_DIRS = [
+    HOME / "AppData" / "Local" / "osu!" / "Songs",
+    HOME / "AppData" / "Roaming" / "osu!" / "Songs"
 ]
 
-QUAVER_DIR = None
+POSSIBLE_QUAVER_DIRS = [
+    Path("C:/Program Files (x86)/Steam/steamapps/common/Quaver/Songs"),
+    Path("C:/Program Files/Steam/steamapps/common/Quaver/Songs")
+]
 
-for steam in POSSIBLE_STEAM_DIRS:
-    candidate = steam / "steamapps" / "common" / "Quaver" / "Songs"
-    if candidate.exists():
-        QUAVER_DIR = candidate
-        break
+POSSIBLE_ETTERNA_DIRS = [
+    HOME / "AppData" / "Roaming" / "Etterna" / "Songs",
+    Path("C:/Games/Etterna/Songs"),
+    Path("C:/Program Files/Etterna/Songs")
+]
+
+OSU_DIR = None
+QUAVER_DIR = None
+ETTERNA_DIR = None
+
+# ==============================
+# Song Source Detection
+# ==============================
+
+def detect_song_sources():
+
+    global OSU_DIR, QUAVER_DIR, ETTERNA_DIR
+
+    for p in POSSIBLE_OSU_DIRS:
+        if p.exists():
+            OSU_DIR = p
+            print("Detected osu! Songs:", p)
+            break
+
+    for p in POSSIBLE_QUAVER_DIRS:
+        if p.exists():
+            QUAVER_DIR = p
+            print("Detected Quaver Songs:", p)
+            break
+
+    for p in POSSIBLE_ETTERNA_DIRS:
+        if p.exists():
+            ETTERNA_DIR = p
+            print("Detected Etterna Songs:", p)
+            break
+
 
 # ==============================
 # Skin System
@@ -41,7 +78,6 @@ for steam in POSSIBLE_STEAM_DIRS:
 
 SKINS_DIR = SONATA_DIR / "Skins"
 SKINS_DIR.mkdir(exist_ok=True)
-
 
 def import_skins():
 
@@ -55,35 +91,198 @@ def import_skins():
         if not folder.is_dir():
             continue
 
-        def_settings = SKINS_DIR / folder.name
-        def_settings.mkdir(exist_ok=True)
+        dest = SKINS_DIR / folder.name
+        dest.mkdir(exist_ok=True)
 
-        for item in folder.glob("*"):
-
+        for item in folder.iterdir():
             if item.is_file():
-
-                with open(item, "rb") as src:
-                    with open(def_settings / item.name, "wb") as out:
-                        out.write(src.read())
+                shutil.copy(item, dest / item.name)
 
 # ==============================
-# Settings
+# Advanced Skin Importer
 # ==============================
 
-def def_settings():
-    return {
-        "keys": ["d", "f", "j", "k"],
-        "volume": 1.0
-    }
+CURRENT_SKIN = None
+# Default fallback skin
+DEFAULT_SKIN_IMAGES = {}
 
-settings = def_settings()
+def create_default_skin():
+    global DEFAULT_SKIN_IMAGES
+    
+    note = pygame.Surface((60,20), pygame.SRCALPHA)
+    pygame.draw.ellipse(note, (107,33,255), note.get_rect())
+    DEFAULT_SKIN_IMAGES["Note"] = note
+
+    receptor = pygame.Surface((60,10), pygame.SRCALPHA)
+    pygame.draw.ellipse(receptor, (255,255,255), receptor.get_rect())
+    DEFAULT_SKIN_IMAGES["Receptor"] = receptor
+
+    hold = pygame.Surface((60,20), pygame.SRCALPHA)
+    pygame.draw.rect(hold,(160,80,255), hold.get_rect())
+    DEFAULT_SKIN_IMAGES["Hold"] = hold
+
+create_default_skin()
+
+def import_all_skins():
+
+    print("\nImporting skins...")
+
+    skins_dest = SKINS_DIR
+    skins_dest.mkdir(exist_ok=True)
+
+    HOME = Path.home()
+
+    sources = [
+
+        HOME / "AppData" / "Local" / "osu!" / "Skins",
+
+        Path("C:/Program Files (x86)/Steam/steamapps/content/980610"),
+
+        HOME / "AppData" / "Roaming" / "Etterna" / "NoteSkins" / "dance"
+    ]
+
+    for source in sources:
+
+        if not source.exists():
+            continue
+
+        for folder in source.iterdir():
+
+            if not folder.is_dir():
+                continue
+
+            dest = skins_dest / folder.name
+
+            if dest.exists():
+                continue
+
+            try:
+                shutil.copytree(folder, dest)
+                print("Imported skin:", folder.name)
+            except:
+                pass
+
+    print("Skin import finished.\n")
+
+    # ---------------- OSU SKINS ----------------
+    osu_skins = HOME / "AppData" / "Local" / "osu!" / "Skins"
+
+    if osu_skins.exists():
+
+        print("Copying osu skins...")
+
+        for skin in osu_skins.iterdir():
+
+            if not skin.is_dir():
+                continue
+
+            dest = skins_dest / ("osu_" + skin.name)
+
+            if dest.exists():
+                continue
+
+            try:
+                shutil.copytree(skin, dest)
+                print("Imported osu skin:", skin.name)
+            except Exception as e:
+                print("Skin copy error:", e)
+
+    # ---------------- QUAVER SKINS ----------------
+    quaver_skins = Path("C:/Program Files (x86)/Steam/steamapps/workshop/content/980610")
+
+    if quaver_skins.exists():
+
+        print("Copying Quaver workshop skins...")
+
+        for skin_folder in quaver_skins.iterdir():
+
+            if not skin_folder.is_dir():
+                continue
+
+            dest = skins_dest / ("quaver_" + skin_folder.name)
+
+            if dest.exists():
+                continue
+
+            try:
+                shutil.copytree(skin_folder, dest)
+                print("Imported quaver skin:", skin_folder.name)
+            except Exception as e:
+                print("Quaver skin error:", e)
+
+    # ---------------- ETTERNA SKINS ----------------
+    etterna_skins = HOME / "AppData" / "Roaming" / "Etterna" / "NoteSkins" / "dance"
+
+    if etterna_skins.exists():
+
+        print("Copying Etterna skins...")
+
+        for skin in etterna_skins.iterdir():
+
+            if not skin.is_dir():
+                continue
+
+            dest = skins_dest / ("etterna_" + skin.name)
+
+            if dest.exists():
+                continue
+
+            try:
+                shutil.copytree(skin, dest)
+                print("Imported etterna skin:", skin.name)
+            except Exception as e:
+                print("Etterna skin error:", e)
+
+    print("Skin import finished.\n")
+
+# ==============================
+# Skin Loader
+# ==============================
+
+def load_skin(skin_folder):
+
+    global CURRENT_SKIN, SKIN_IMAGES
+
+    CURRENT_SKIN = skin_folder
+    SKIN_IMAGES = {}
+
+    ini_file = skin_folder / "skin.ini"
+
+    if not ini_file.exists():
+        return
+
+    print("Loading skin:", skin_folder.name)
+
+    with open(ini_file, "r", encoding="utf8", errors="ignore") as f:
+        lines = f.readlines()
+
+    # Parse image references
+    for line in lines:
+
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=",1)
+
+        key = key.strip()
+        value = value.strip()
+
+        image_path = skin_folder / value
+
+        if image_path.exists() and image_path.suffix.lower() in [".png",".jpg",".jpeg"]:
+
+            try:
+                img = pygame.image.load(str(image_path)).convert_alpha()
+                SKIN_IMAGES[key] = img
+                print("Loaded:", key)
+            except:
+                pass
 
 # ==============================
 # FFmpeg Auto Installer
 # ==============================
 
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-
 
 def install_ffmpeg():
 
@@ -94,10 +293,10 @@ def install_ffmpeg():
 
     zip_path = ENGINE_DIR / "ffmpeg.zip"
 
-    r = requests.get(FFMPEG_URL, stream=True, timeout=15)
+    r = requests.get(FFMPEG_URL, stream=True)
 
     with open(zip_path, "wb") as f:
-        for chunk in r.iter_content(chunk_size=8192):
+        for chunk in r.iter_content(8192):
             f.write(chunk)
 
     print("Extracting FFmpeg...")
@@ -109,98 +308,116 @@ def install_ffmpeg():
         for file in files:
             if file == "ffmpeg.exe":
                 src = Path(root) / file
-                dst = FFMPEG_DIR / "ffmpeg.exe"
                 FFMPEG_DIR.mkdir(exist_ok=True)
-                os.rename(src, dst)
-                break
+                shutil.move(src, FFMPEG_DIR / "ffmpeg.exe")
 
     print("FFmpeg installed")
 
 # ==============================
-# Chart Data Structure
+# Chart Structure
 # ==============================
 
 class Chart:
 
     def __init__(self):
 
-        self.notes = []
+        self.notes = []      
+        self.lns = []        
         self.audio = None
-        self.bpm = 120
+        self.bg = None
+
         self.keys = 4
-        self.difficulty = "Unknown"
+
         self.title = "Unknown"
         self.artist = "Unknown"
+        self.diff = "Normal"
 
 # ==============================
-# OSU Parser (Mania only)
+# OSU Parser
 # ==============================
 
 def parse_osu(path):
 
     chart = Chart()
+    mode = None
 
-    with open(path, "r", encoding="utf8", errors="ignore") as f:
-
-        mode = None
+    with open(path,"r",encoding="utf8",errors="ignore") as f:
 
         for line in f:
 
             if line.startswith("Mode:"):
-                mode = int(line.split(":")[1])
+                mode=int(line.split(":")[1])
 
             if line.startswith("CircleSize:"):
-                chart.keys = int(float(line.split(":")[1]))
+                chart.keys=int(float(line.split(":")[1]))
 
             if line.startswith("Title:"):
-                chart.title = line.split(":",1)[1].strip()
+                chart.title=line.split(":",1)[1].strip()
 
             if line.startswith("Artist:"):
-                chart.artist = line.split(":",1)[1].strip()
+                chart.artist=line.split(":",1)[1].strip()
+
+            if line.startswith("Version:"):
+                chart.diff=line.split(":",1)[1].strip()
 
             if line.startswith("AudioFilename"):
-                chart.audio = line.split(":")[1].strip()
+                chart.audio=line.split(":")[1].strip()
 
-            if line.count(",") >= 4:
+            if line.startswith("0,0,\""):
+                chart.bg=line.split(",")[2].replace("\"","")
 
-                if mode != 3:
-                    continue
+            if line.count(",")>=4 and mode==3:
 
-                parts = line.split(",")
+                parts=line.split(",")
 
-                x = int(parts[0])
-                time = int(parts[2])
+                x=int(parts[0])
+                time=int(parts[2])
+                obj=int(parts[3])
 
-                column = int(x / (512 / chart.keys))
+                column=int(x/(512/chart.keys))
 
-                chart.notes.append((time, column))
+                if obj & 128:
+
+                    end=int(parts[5].split(":")[0])
+                    chart.lns.append((time,end,column))
+
+                else:
+                    chart.notes.append((time,column))
 
     return chart
-
 # ==============================
-# Quaver Parser (.qua YAML)
+# Quaver Parser
 # ==============================
 
 def parse_qua(path):
 
-    chart = Chart()
+    chart=Chart()
 
-    with open(path, "r", encoding="utf8") as f:
+    with open(path,"r",encoding="utf8") as f:
+        data=yaml.safe_load(f)
 
-        data = yaml.safe_load(f)
+    chart.title=data.get("Title","Unknown")
+    chart.artist=data.get("Artist","Unknown")
+    chart.audio=data.get("AudioFile")
+    chart.bg=data.get("BackgroundFile")
+    chart.diff=data.get("DifficultyName","Normal")
 
-    chart.title = data.get("Title", "Unknown")
-    chart.artist = data.get("Artist", "Unknown")
-    chart.audio = data.get("AudioFile")
+    mode=data.get("Mode","Keys4")
 
-    for note in data.get("HitObjects", []):
+    if "4" in mode:
+        chart.keys=4
+    elif "7" in mode:
+        chart.keys=7
 
-        time = note.get("StartTime")
-        lane = note.get("Lane")
+    for note in data.get("HitObjects",[]):
 
-        chart.notes.append((time, lane))
+        start=note["StartTime"]
+        lane=note["Lane"]
 
-    chart.keys = data.get("Mode", 4)
+        if "EndTime" in note:
+            chart.lns.append((start,note["EndTime"],lane-1))
+        else:
+            chart.notes.append((start,lane-1))
 
     return chart
 
@@ -210,35 +427,46 @@ def parse_qua(path):
 
 def parse_sm(path):
 
-    chart = Chart()
+    chart=Chart()
 
-    with open(path, "r", encoding="utf8", errors="ignore") as f:
-
-        lines = f.readlines()
+    with open(path,"r",encoding="utf8",errors="ignore") as f:
+        lines=f.readlines()
 
     for line in lines:
 
         if line.startswith("#TITLE:"):
-            chart.title = line.replace("#TITLE:","").replace(";","")
+            chart.title=line.replace("#TITLE:","").replace(";","")
 
         if line.startswith("#ARTIST:"):
-            chart.artist = line.replace("#ARTIST:","").replace(";","")
+            chart.artist=line.replace("#ARTIST:","").replace(";","")
 
         if line.startswith("#MUSIC:"):
-            chart.audio = line.replace("#MUSIC:","").replace(";","")
+            chart.audio=line.replace("#MUSIC:","").replace(";","")
 
-    time = 0
+        if line.startswith("#BACKGROUND:"):
+            chart.bg=line.replace("#BACKGROUND:","").replace(";","")
+
+    time=0
+    ln_start=[None]*4
 
     for line in lines:
 
         line=line.strip()
 
-        if len(line)==4 and set(line).issubset({"0","1","2","3","4"}):
+        if len(line)==4:
 
             for i,c in enumerate(line):
 
                 if c=="1":
                     chart.notes.append((time,i))
+
+                if c=="2":
+                    ln_start[i]=time
+
+                if c=="3" and ln_start[i] is not None:
+
+                    chart.lns.append((ln_start[i],time,i))
+                    ln_start[i]=None
 
             time+=120
 
@@ -250,201 +478,157 @@ def parse_sm(path):
 
 def load_chart(path):
 
-    ext = Path(path).suffix.lower()
+    ext = path.suffix.lower()
 
-    if ext==".osu":
+    if ext == ".osu":
         return parse_osu(path)
 
-    if ext==".qua":
+    if ext == ".qua":
         return parse_qua(path)
 
-    if ext==".sm":
+    if ext == ".sm":
         return parse_sm(path)
 
-    raise Exception("Unsupported format")
-
 # ==============================
-# Song Library Importer
+# Mania Detection
 # ==============================
 
-def import_osu_songs():
+def is_osu_mania(file):
 
-    if not OSU_DIR.exists():
-        return
+    try:
+        with open(file, "r", encoding="utf8", errors="ignore") as f:
+            return "Mode: 3" in f.read()
+    except:
+        return False
 
-    for folder in OSU_DIR.iterdir():
+# ==============================
+# Copy Helper
+# ==============================
 
-        if not folder.is_dir():
-            continue
+def copy_song(src_folder):
 
-        has_mania = False
+    dest = SONGS_DIR / src_folder.name
 
-        for file in folder.glob("*.osu"):
+    if dest.exists():
+        return False
 
-            with open(file, "r", encoding="utf8", errors="ignore") as f:
-                text = f.read()
-                if "Mode: 3" in text:
-                    has_mania = True
+    try:
+        shutil.copytree(src_folder, dest)
+        return True
+    except:
+        return False
+
+# ==============================
+# Universal Scanner
+# ==============================
+
+def scan_all_games():
+
+    detect_song_sources()
+
+    imported = 0
+
+    if OSU_DIR:
+
+        print("\nScanning osu!mania...")
+
+        for folder in OSU_DIR.iterdir():
+
+            if not folder.is_dir():
+                continue
+
+            mania_found = False
+
+            for file in folder.glob("*.osu"):
+                if is_osu_mania(file):
+                    mania_found = True
                     break
 
-        if has_mania:
-            chart_name = folder.name
-            def_settings.mkdir(exist_ok=True)
+            if mania_found:
 
-            # Copy entire folder (audio + bg + charts)
-            for item in folder.glob("*"):
-                if item.is_file():
-                    try:
-                        with open(item, "rb") as src:
-                            with open(def_settings / item.name, "wb") as out:
-                                out.write(src.read())
-                    except Exception as e:
-                        print("Copy error:", e)
+                if copy_song(folder):
+                    imported += 1
+                    print("Imported:", folder.name)
 
+    if QUAVER_DIR:
 
-def import_quaver_songs():
+        print("\nScanning Quaver...")
 
-    if not QUAVER_DIR or not QUAVER_DIR.exists():
-        return
+        for folder in QUAVER_DIR.iterdir():
 
-    for folder in QUAVER_DIR.iterdir():
+            if not folder.is_dir():
+                continue
 
-        if not folder.is_dir():
-            continue
+            for file in folder.glob("*.qua"):
 
-        for file in folder.glob("*.qua"):
+                if copy_song(folder):
+                    imported += 1
+                    print("Imported:", folder.name)
 
-            chart_name = folder.name
-            def_settings.mkdir(exist_ok=True)
+                break
 
-            # Copy entire folder
-            for item in folder.glob("*"):
-                if item.is_file():
-                    try:
-                        with open(item, "rb") as src:
-                            with open(def_settings / item.name, "wb") as out:
-                                out.write(src.read())
-                    except Exception as e:
-                        print("Copy error:", e)
+    if ETTERNA_DIR:
 
-# ==============================
-# Accuracy System
-# ==============================
+        print("\nScanning Etterna...")
 
-JUDGE_PRESETS = {
-    "easy": {
-        "marv": 25,
-        "perf": 50,
-        "great": 100,
-        "good": 150,
-        "miss": 200
-    },
-    "normal": {
-        "marv": 16,
-        "perf": 34,
-        "great": 67,
-        "good": 100,
-        "miss": 150
-    },
-    "hard": {
-        "marv": 10,
-        "perf": 20,
-        "great": 40,
-        "good": 75,
-        "miss": 120
-    },
-    "expert": {
-        "marv": 5,
-        "perf": 15,
-        "great": 30,
-        "good": 60,
-        "miss": 100
-    },
-    "custom": {
-        "marv": 20,
-        "perf": 40,
-        "great": 80,
-        "good": 120,
-        "miss": 180
-    }
-}
+        for pack in ETTERNA_DIR.iterdir():
 
-ACTIVE_JUDGE = "normal"
+            if not pack.is_dir():
+                continue
 
-HIT_WINDOWS = JUDGE_PRESETS.get(ACTIVE_JUDGE, JUDGE_PRESETS["normal"])
+            for song in pack.iterdir():
 
+                if not song.is_dir():
+                    continue
+
+                for file in song.glob("*.sm"):
+
+                    if copy_song(song):
+                        imported += 1
+                        print("Imported:", song.name)
+
+                    break
+
+    print("\nScan complete.")
+    print("Total imported:", imported)
 
 # ==============================
-# SPP SYSTEM
+# Pygame Engine
 # ==============================
-
-JUDGE_SPP_MULT = {
-    "easy": 0.7,
-    "normal": 1.0,
-    "hard": 1.2,
-    "expert": 1.5,
-    "custom": 1.0
-}
-
-
-def calculate_spp(score, accuracy, note_count, judge_mode):
-
-    score_factor = score / 1_000_000
-
-    acc_bonus = (accuracy / 100) ** 4
-
-    density = min(note_count / 1000, 2)
-
-    diff_mult = JUDGE_SPP_MULT.get(judge_mode, 1.0)
-
-    spp = 120 * score_factor * acc_bonus * density * diff_mult
-
-    return round(spp, 2)
-
-# ==============================
-# pygame engine
-# ==============================
-
+pygame.mixer.init()
 pygame.init()
 
-WIDTH=1000
-HEIGHT=700
+WIDTH = 1000
+HEIGHT = 700
 
-screen=pygame.display.set_mode((WIDTH,HEIGHT))
-
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Sonata")
 
-font=pygame.font.SysFont("Monsterrat.ttf",32)
+font = pygame.font.SysFont("Arial", 32)
 
-clock=pygame.time.Clock()
-
-
-def draw(text,x,y):
-
-    surf=font.render(text,True,(107, 33, 255))
-
-    screen.blit(surf,(x,y))
+clock = pygame.time.Clock()
 
 # ==============================
-# Game States
+# States
 # ==============================
 
 STATE_MENU = "menu"
-STATE_SONG_SELECT = "song_select"
-STATE_GAMEPLAY = "gameplay"
+STATE_SELECT = "select"
+STATE_GAME = "game"
 
 current_state = STATE_MENU
-selected_song_index = 0
-songs_list = []
-current_chart = None
-bg_image = None
 
-scroll_offset = 0
-max_visible = 10
+songs_list = []
+selected_song = 0
+current_chart = None
+
+# ==============================
+# Song Loader
+# ==============================
 
 def load_songs():
-    global songs_list
 
+    global songs_list
     songs_list = []
 
     for folder in SONGS_DIR.iterdir():
@@ -452,142 +636,39 @@ def load_songs():
         if not folder.is_dir():
             continue
 
-        chart_name = folder.name
+        name = folder.name
 
-        for file in folder.glob("*"):
+        for file in folder.glob("*.osu"):
+            with open(file,"r",encoding="utf8",errors="ignore") as f:
+                for line in f:
+                    if line.startswith("Title:"):
+                        name = line.split(":",1)[1].strip()
+                        break
+            break
 
-            if file.suffix in [".osu", ".qua", ".sm"]:
-
-                with open(file, "r", encoding="utf8", errors="ignore") as f:
-
-                    for line in f:
-
-                        if line.startswith("Title:"):
-                            chart_name = line.split(":", 1)[1].strip()
-                            break
-
-                break
-
-        songs_list.append((folder, chart_name))
-
-        songs_list.append((folder, chart_name))
-
-def song_select_loop():
-    global selected_song_index, current_state, current_chart, bg_image, scroll_offset
-
-    load_songs()
-    scroll_offset = 0
-
-    while current_state == STATE_SONG_SELECT:
-        screen.fill((10, 10, 10))
-
-        # ==== DRAW SONGS ====
-        for i in range(scroll_offset, min(scroll_offset + max_visible, len(songs_list))):
-            folder, name = songs_list[i]
-            prefix = "> " if i == selected_song_index else ""
-            text = font.render(prefix + name, True, (107,33,255))
-            screen.blit(text, (100, 200 + (i - scroll_offset) * 40))
-
-        # ==== HANDLE EVENTS ====
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    current_state = STATE_MENU
-                    return
-
-                if event.key == pygame.K_UP and selected_song_index > 0:
-                    selected_song_index -= 1
-                    if selected_song_index < scroll_offset:
-                        scroll_offset -= 1
-
-                if event.key == pygame.K_DOWN and selected_song_index < len(songs_list) - 1:
-                    selected_song_index += 1
-                    if selected_song_index >= scroll_offset + max_visible:
-                        scroll_offset += 1
-
-                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    selected_folder = songs_list[selected_song_index][0]
-
-                    chart_file = None
-                    for file in selected_folder.glob("*"):
-                        if file.suffix.lower() in [".osu", ".qua", ".sm"]:
-                            chart_file = file
-                            break
-
-                    if chart_file:
-                        current_chart = load_chart(chart_file)
-
-                    bg_image = None
-                    for file in selected_folder.glob("*"):
-                        if file.suffix.lower() in [".png", ".jpg", ".jpeg"]:
-                            bg_image = pygame.image.load(str(file))
-                            bg_image = pygame.transform.scale(bg_image, (WIDTH, HEIGHT))
-                            break
-
-                    pygame.time.delay(200)  # small pause
-                    current_state = STATE_GAMEPLAY
-
-        pygame.display.flip()
-        clock.tick(60)
-
-
-def gameplay_loop():
-    global current_state
-
-    start_time = pygame.time.get_ticks()
-
-    while current_state == STATE_GAMEPLAY:
-
-        screen.fill((0, 0, 0))
-
-        if bg_image:
-            screen.blit(bg_image, (0, 0))
-
-        if current_chart:
-            for note in current_chart.notes:
-                time, column = note
-                y = (pygame.time.get_ticks() - start_time - 3000) * 0.5
-                pygame.draw.rect(
-                    screen,
-                    (107, 33, 255),
-                    (column * 80 + 200, y, 60, 20)
-                )
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    current_state = STATE_SONG_SELECT
-
-        pygame.display.flip()
-        clock.tick(60)
+        songs_list.append((folder,name))
 
 # ==============================
-# Main Menu
+# Menu
 # ==============================
 
-menu = ["Play", "Import Songs", "Import Skins", "Change Skin", "Quit"]
-selected = 0
+menu = ["Play","Import Songs","Import Skins","Quit"]
+menu_index = 0
 
 def menu_loop():
-    global selected, current_state
+
+    global menu_index, current_state
 
     while current_state == STATE_MENU:
 
-        screen.fill((20, 20, 20))
+        screen.fill((20,20,20))
 
-        for i, item in enumerate(menu):
+        for i,item in enumerate(menu):
 
-            prefix = "> " if i == selected else ""
-            text = font.render(prefix + item, True, (107, 33, 255))
-            screen.blit(text, (100, 200 + i * 50))
+            prefix = "> " if i == menu_index else ""
+            text = font.render(prefix + item,True,(107,33,255))
+
+            screen.blit(text,(100,200+i*50))
 
         for event in pygame.event.get():
 
@@ -598,30 +679,218 @@ def menu_loop():
             if event.type == pygame.KEYDOWN:
 
                 if event.key == pygame.K_UP:
-                    selected = (selected - 1) % len(menu)
+                    menu_index = (menu_index-1)%len(menu)
 
                 if event.key == pygame.K_DOWN:
-                    selected = (selected + 1) % len(menu)
+                    menu_index = (menu_index+1)%len(menu)
 
-                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                if event.key == pygame.K_RETURN:
 
-                    if menu[selected] == "Play":
-                        current_state = STATE_SONG_SELECT
+                    if menu[menu_index] == "Play":
+                        current_state = STATE_SELECT
 
-                    elif menu[selected] == "Import Songs":
-                        import_osu_songs()
-                        import_quaver_songs()
+                    elif menu[menu_index] == "Import Songs":
+                        scan_all_games()
 
-                    elif menu[selected] == "Quit":
+                    elif menu[menu_index] == "Import Skins":
+                        import_skins()
+
+                    elif menu[menu_index] == "Quit":
                         pygame.quit()
                         sys.exit()
-                    elif menu[selected] == "Import Skins":
-                        import_skins()
-                    elif menu[selected] == "Change Skin":
-                        print("Skin selection UI not built yet")
 
         pygame.display.flip()
         clock.tick(60)
+
+# ==============================
+# Song Select
+# ==============================
+
+def select_loop():
+
+    global current_state, selected_song, current_chart
+
+    load_songs()
+
+    while current_state == STATE_SELECT:
+
+        screen.fill((10,10,10))
+
+        for i,(folder,name) in enumerate(songs_list):
+
+            prefix="> " if i==selected_song else ""
+            text=font.render(prefix+name,True,(107,33,255))
+
+            screen.blit(text,(100,200+i*40))
+
+        for event in pygame.event.get():
+
+            if event.type==pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+            if event.type==pygame.KEYDOWN:
+
+                if event.key==pygame.K_ESCAPE:
+                    current_state=STATE_MENU
+                    return
+
+                if event.key==pygame.K_UP and selected_song>0:
+                    selected_song-=1
+
+                if event.key==pygame.K_DOWN and selected_song<len(songs_list)-1:
+                    selected_song+=1
+
+                if event.key==pygame.K_RETURN:
+
+                    folder=songs_list[selected_song][0]
+
+                    for file in folder.glob("*"):
+                        if file.suffix.lower() in [".osu",".qua",".sm"]:
+                            current_chart=load_chart(file)
+                            break
+
+                    current_state=STATE_GAME
+
+        pygame.display.flip()
+        clock.tick(60)
+
+# ==============================
+# Gameplay
+# ==============================
+
+def game_loop():
+
+    global current_state
+
+    chart=current_chart
+
+    folder=songs_list[selected_song][0]
+
+    audio=None
+
+    for f in folder.iterdir():
+        if f.name==chart.audio:
+            audio=f
+
+    if audio:
+        pygame.mixer.music.load(audio)
+        pygame.mixer.music.play()
+
+    bg=None
+
+    if chart.bg:
+        bg_path=folder/chart.bg
+        if bg_path.exists():
+            bg=pygame.image.load(bg_path)
+            bg=pygame.transform.scale(bg,(WIDTH,HEIGHT))
+
+    start=pygame.time.get_ticks()
+
+    keys=[pygame.K_d,pygame.K_f,pygame.K_j,pygame.K_k]
+
+    hit_windows={
+        "MARV":22,
+        "PERFECT":45,
+        "GREAT":90,
+        "GOOD":135
+    }
+
+    judgement=""
+    hit_notes=set()
+
+    while current_state==STATE_GAME:
+
+        if bg:
+            screen.blit(bg,(0,0))
+        else:
+            screen.fill((0,0,0))
+
+        current_time=pygame.time.get_ticks()-start
+
+        for i in range(chart.keys):
+
+            pygame.draw.rect(
+                screen,
+                (200,200,200),
+                (200+i*80,HEIGHT-120,60,10)
+            )
+
+        scroll_speed=0.6
+
+        for i,(time,col) in enumerate(chart.notes):
+
+            if i in hit_notes:
+                continue
+
+            y=HEIGHT-120-(time-current_time)*scroll_speed
+
+            if y>HEIGHT:
+                continue
+
+            pygame.draw.rect(
+                screen,
+                (107,33,255),
+                (200+col*80,y,60,20)
+            )
+
+            if current_time-time>150:
+                judgement="MISS"
+                hit_notes.add(i)
+
+        for start_ln,end_ln,col in chart.lns:
+
+            y1=HEIGHT-120-(start_ln-current_time)*scroll_speed
+            y2=HEIGHT-120-(end_ln-current_time)*scroll_speed
+
+            pygame.draw.rect(
+                screen,
+                (160,80,255),
+                (200+col*80,y1,60,y2-y1)
+            )
+
+        if judgement:
+
+            text=font.render(judgement,True,(255,255,255))
+            screen.blit(text,(WIDTH//2-60,HEIGHT//2))
+
+        for event in pygame.event.get():
+
+            if event.type==pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+            if event.type==pygame.KEYDOWN:
+
+                if event.key==pygame.K_ESCAPE:
+
+                    pygame.mixer.music.stop()
+                    current_state=STATE_SELECT
+                    return
+
+                for col,key in enumerate(keys):
+
+                    if event.key==key:
+
+                        for i,(time,ncol) in enumerate(chart.notes):
+
+                            if ncol!=col or i in hit_notes:
+                                continue
+
+                            diff=abs(current_time-time)
+
+                            for j,w in hit_windows.items():
+
+                                if diff<=w:
+
+                                    judgement=j
+                                    hit_notes.add(i)
+                                    break
+
+                            break
+
+        pygame.display.flip()
+        clock.tick(120)
 
 # ==============================
 # Boot
@@ -631,14 +900,18 @@ if __name__=="__main__":
 
     install_ffmpeg()
     import_skins()
+    if SKINS_DIR.exists():
+        skins = list(SKINS_DIR.iterdir())
+        if skins:
+            load_skin(skins[0])
 
     while True:
 
-        if current_state == STATE_MENU:
+        if current_state==STATE_MENU:
             menu_loop()
 
-        elif current_state == STATE_SONG_SELECT:
-            song_select_loop()
+        if current_state==STATE_SELECT:
+            select_loop()
 
-        elif current_state == STATE_GAMEPLAY:
-            gameplay_loop()
+        if current_state==STATE_GAME:
+            game_loop()
