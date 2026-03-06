@@ -72,7 +72,7 @@ def import_skins():
 
 def def_settings():
     return {
-        "keys": ["a", "s", "k", "l"],
+        "keys": ["d", "f", "j", "k"],
         "volume": 1.0
     }
 
