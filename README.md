@@ -1,7 +1,7 @@
 # Sonata
 Welcome to this new python VSRG
 
-## How to run without the .exe
+## How to run the python file
 Install [Python 3.11.9](https://www.python.org/downloads/release/python-3119/)
 
 Open terminal in project folder
