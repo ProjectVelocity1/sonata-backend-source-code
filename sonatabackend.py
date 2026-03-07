@@ -1,11 +1,15 @@
-import os
-import sys
-import zipfile
-import requests
-import pygame
-import yaml
+import os, sys, zipfile, requests, pygame, yaml, shutil, sys
 from pathlib import Path
-import shutil
+
+if sys.platform.startswith("win"):
+    import tkinter as tk
+    subprocess = None
+elif sys.platform.startswith("linux"):
+    import subprocess
+    tk = None
+else:
+    subprocess = None
+    tk = None
 
 # ==============================
 # Directories
@@ -49,6 +53,29 @@ ETTERNA_DIR = None
 # Song Source Detection
 # ==============================
 
+def ask_folder_path(game_title:str = "that unknown game idk about"):
+    dir = None
+    titel = "Please choose a folder path for " + game_title
+    if tk:
+            root = tk.Tk()
+            root.withdraw()
+            dir = tk.filedialog.askdirectory(
+                title=titel
+            )
+    elif subprocess:
+        try:
+            dir = subprocess.check_output(
+                ["kdialog", "--getexistingdirectory", ".", "--title", titel]
+            ).decode().strip()
+        except FileNotFoundError:
+            try:
+                dir = subprocess.check_output(
+                    ["flatpak-spawn", "--host", "kdialog", "--getexistingdirectory", ".", "--title", titel]
+                ).decode().strip()
+            except subprocess.CalledProcessError:
+                pass
+    return Path(dir)
+
 def detect_song_sources():
 
     global OSU_DIR, QUAVER_DIR, ETTERNA_DIR
@@ -58,18 +85,24 @@ def detect_song_sources():
             OSU_DIR = p
             print("Detected osu! Songs:", p)
             break
+    if not OSU_DIR:
+        OSU_DIR = ask_folder_path('osu!')
 
     for p in POSSIBLE_QUAVER_DIRS:
         if p.exists():
             QUAVER_DIR = p
             print("Detected Quaver Songs:", p)
             break
+    if not QUAVER_DIR:
+        QUAVER_DIR = ask_folder_path('Quaver')
 
     for p in POSSIBLE_ETTERNA_DIRS:
         if p.exists():
             ETTERNA_DIR = p
             print("Detected Etterna Songs:", p)
             break
+    if not ETTERNA_DIR:
+        ETTERNA_DIR = ask_folder_path('Etterna')
 
 
 # ==============================
@@ -589,7 +622,7 @@ def scan_all_games():
 
                     break
 
-    print("\nScan complete.")
+    print("Scan complete.")
     print("Total imported:", imported)
 
 # ==============================
