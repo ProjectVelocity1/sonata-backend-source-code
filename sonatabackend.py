@@ -56,13 +56,13 @@ ETTERNA_DIR = None
 def ask_folder_path(game_title:str = "that unknown game idk about"):
     dir = None
     titel = "Please choose a folder path for " + game_title
-    if tk:
+    if tk: # Windows
             root = tk.Tk()
             root.withdraw()
             dir = tk.filedialog.askdirectory(
                 title=titel
             )
-    elif subprocess:
+    elif subprocess: # Linux
         try:
             dir = subprocess.check_output(
                 ["kdialog", "--getexistingdirectory", ".", "--title", titel]
@@ -1173,3 +1173,4 @@ if __name__=="__main__":
 
         if current_state==STATE_DIFF_SELECT:
             diff_select_loop()
+
