@@ -1,11 +1,15 @@
-import os
-import sys
-import zipfile
-import requests
-import pygame
-import yaml
+import os, sys, zipfile, requests, pygame, yaml, shutil, sys
 from pathlib import Path
-import shutil
+
+if sys.platform.startswith("win"):
+    import tkinter as tk
+    subprocess = None
+elif sys.platform.startswith("linux"):
+    import subprocess
+    tk = None
+else:
+    subprocess = None
+    tk = None
 
 # ==============================
 # Directories
@@ -49,6 +53,29 @@ ETTERNA_DIR = None
 # Song Source Detection
 # ==============================
 
+def ask_folder_path(game_title:str = "that unknown game idk about"):
+    dir = None
+    titel = "Please choose a folder path for " + game_title
+    if tk:
+            root = tk.Tk()
+            root.withdraw()
+            dir = tk.filedialog.askdirectory(
+                title=titel
+            )
+    elif subprocess:
+        try:
+            dir = subprocess.check_output(
+                ["kdialog", "--getexistingdirectory", ".", "--title", titel]
+            ).decode().strip()
+        except FileNotFoundError:
+            try:
+                dir = subprocess.check_output(
+                    ["flatpak-spawn", "--host", "kdialog", "--getexistingdirectory", ".", "--title", titel]
+                ).decode().strip()
+            except subprocess.CalledProcessError:
+                pass
+    return Path(dir)
+
 def detect_song_sources():
 
     global OSU_DIR, QUAVER_DIR, ETTERNA_DIR
@@ -58,18 +85,24 @@ def detect_song_sources():
             OSU_DIR = p
             print("Detected osu! Songs:", p)
             break
+    if not OSU_DIR:
+        OSU_DIR = ask_folder_path('osu!')
 
     for p in POSSIBLE_QUAVER_DIRS:
         if p.exists():
             QUAVER_DIR = p
             print("Detected Quaver Songs:", p)
             break
+    if not QUAVER_DIR:
+        QUAVER_DIR = ask_folder_path('Quaver')
 
     for p in POSSIBLE_ETTERNA_DIRS:
         if p.exists():
             ETTERNA_DIR = p
             print("Detected Etterna Songs:", p)
             break
+    if not ETTERNA_DIR:
+        ETTERNA_DIR = ask_folder_path('Etterna')
 
 
 # ==============================
@@ -589,7 +622,7 @@ def scan_all_games():
 
                     break
 
-    print("\nScan complete.")
+    print("Scan complete.")
     print("Total imported:", imported)
 
 # ==============================
@@ -622,6 +655,18 @@ songs_list = []
 selected_song = 0
 current_chart = None
 
+STATE_SETTINGS = "settings"
+STATE_DIFF_SELECT = "diff_select"
+
+settings = {
+    "scroll_speed":0.6,
+    "offset":0,
+    "hitsound":True
+}
+
+settings_menu = ["Scroll Speed","Offset","Hitsound","Back"]
+settings_index = 0
+
 # ==============================
 # Song Loader
 # ==============================
@@ -652,7 +697,7 @@ def load_songs():
 # Menu
 # ==============================
 
-menu = ["Play","Import Songs","Import Skins","Quit"]
+menu = ["Play","Import Songs","Import Skins","Settings","Quit"]
 menu_index = 0
 
 def menu_loop():
@@ -684,7 +729,7 @@ def menu_loop():
                 if event.key == pygame.K_DOWN:
                     menu_index = (menu_index+1)%len(menu)
 
-                if event.key == pygame.K_RETURN:
+                if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
 
                     if menu[menu_index] == "Play":
                         current_state = STATE_SELECT
@@ -695,6 +740,9 @@ def menu_loop():
                     elif menu[menu_index] == "Import Skins":
                         import_skins()
 
+                    elif menu[menu_index] == "Settings":
+                        current_state = STATE_SETTINGS
+
                     elif menu[menu_index] == "Quit":
                         pygame.quit()
                         sys.exit()
@@ -702,9 +750,83 @@ def menu_loop():
         pygame.display.flip()
         clock.tick(60)
 
+def settings_loop():
+
+    global settings_index, current_state
+
+    while current_state == STATE_SETTINGS:
+
+        screen.fill((15,15,15))
+
+        for i,item in enumerate(settings_menu):
+
+            prefix="> " if i==settings_index else ""
+
+            value=""
+
+            if item=="Scroll Speed":
+                value=f": {settings['scroll_speed']}"
+
+            if item=="Offset":
+                value=f": {settings['offset']}"
+
+            if item=="Hitsound":
+                value=f": {'ON' if settings['hitsound'] else 'OFF'}"
+
+            text=font.render(prefix+item+value,True,(107,33,255))
+            screen.blit(text,(100,200+i*50))
+
+        for event in pygame.event.get():
+
+            if event.type==pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+            if event.type==pygame.KEYDOWN:
+
+                if event.key==pygame.K_ESCAPE:
+                    current_state=STATE_MENU
+                    return
+
+                if event.key==pygame.K_UP:
+                    settings_index=(settings_index-1)%len(settings_menu)
+
+                if event.key==pygame.K_DOWN:
+                    settings_index=(settings_index+1)%len(settings_menu)
+
+                if event.key==pygame.K_LEFT:
+
+                    if settings_menu[settings_index]=="Scroll Speed":
+                        settings["scroll_speed"]=max(0.2,settings["scroll_speed"]-0.1)
+
+                    if settings_menu[settings_index]=="Offset":
+                        settings["offset"]-=5
+
+                if event.key==pygame.K_RIGHT:
+
+                    if settings_menu[settings_index]=="Scroll Speed":
+                        settings["scroll_speed"]+=0.1
+
+                    if settings_menu[settings_index]=="Offset":
+                        settings["offset"]+=5
+
+                if event.key==pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+
+                    if settings_menu[settings_index]=="Hitsound":
+                        settings["hitsound"]=not settings["hitsound"]
+
+                    if settings_menu[settings_index]=="Back":
+                        current_state=STATE_MENU
+                        return
+
+        pygame.display.flip()
+        clock.tick(60)
+
 # ==============================
 # Song Select
 # ==============================
+diff_list = []
+selected_diff = 0
 
 def select_loop():
 
@@ -741,15 +863,66 @@ def select_loop():
                 if event.key==pygame.K_DOWN and selected_song<len(songs_list)-1:
                     selected_song+=1
 
-                if event.key==pygame.K_RETURN:
+                if event.key==pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
 
                     folder=songs_list[selected_song][0]
+                    diff_list.clear()
 
                     for file in folder.glob("*"):
                         if file.suffix.lower() in [".osu",".qua",".sm"]:
+                            diff_list.append(file)
+
+                        if diff_list:
+                            selected_diff = 0
+                            current_state = STATE_DIFF_SELECT
                             current_chart=load_chart(file)
                             break
 
+                    current_state=STATE_GAME
+
+        pygame.display.flip()
+        clock.tick(60)
+
+def diff_select_loop():
+
+    global current_state, selected_diff, current_chart
+
+    folder=songs_list[selected_song][0]
+
+    while current_state==STATE_DIFF_SELECT:
+
+        screen.fill((20,20,20))
+
+        for i,file in enumerate(diff_list):
+
+            name=file.stem
+            prefix="> " if i==selected_diff else ""
+
+            text=font.render(prefix+name,True,(107,33,255))
+            screen.blit(text,(120,200+i*40))
+
+        for event in pygame.event.get():
+
+            if event.type==pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+            if event.type==pygame.KEYDOWN:
+
+                if event.key==pygame.K_ESCAPE:
+                    current_state=STATE_SELECT
+                    return
+
+                if event.key==pygame.K_UP and selected_diff>0:
+                    selected_diff-=1
+
+                if event.key==pygame.K_DOWN and selected_diff<len(diff_list)-1:
+                    selected_diff+=1
+
+                if event.key==pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+
+                    chart_file=diff_list[selected_diff]
+                    current_chart=load_chart(chart_file)
                     current_state=STATE_GAME
 
         pygame.display.flip()
@@ -760,6 +933,19 @@ def select_loop():
 # ==============================
 
 def game_loop():
+
+    global score, combo, max_combo
+    global marv, perf, great, good, miss
+
+    score = 0
+    combo = 0
+    max_combo = 0
+
+    marv = 0
+    perf = 0
+    great = 0
+    good = 0
+    miss = 0
 
     global current_state
 
@@ -837,6 +1023,8 @@ def game_loop():
             if current_time-time>150:
                 judgement="MISS"
                 hit_notes.add(i)
+                combo=0
+                miss+=1
 
         for start_ln,end_ln,col in chart.lns:
 
@@ -885,12 +1073,76 @@ def game_loop():
 
                                     judgement=j
                                     hit_notes.add(i)
+
+                                    if j == "MARV":
+                                        score+=1000
+                                        marv+=1
+                                        combo+=1
+
+                                    elif j == "PERFECT":
+                                        score+=800
+                                        perf+=1
+                                        combo+=1
+
+                                    elif j == "GREAT":
+                                        score+=500
+                                        great+=1
+                                        combo+=1
+
+                                    elif j == "GOOD":
+                                        score +=200
+                                        great+=1
+                                        combo+=1
+                                    max_combo=max(max_combo,combo)
                                     break
 
                             break
 
         pygame.display.flip()
         clock.tick(120)
+score = 0
+combo = 0
+max_combo = 0
+marv = 0
+perf = 0
+great = 0
+good = 0
+miss = 0
+
+total_hits = marv+perf+great+good+miss
+
+if total_hits>0:
+    accuracy = (
+        (marv*1.0 + perf*0.9 + great*0.7 + good*0.4)
+        / total_hits
+    )*100
+else:
+    accuracy=100
+
+rank="F"
+
+if accuracy>=99:
+    rank="SS"
+elif accuracy>=96:
+    rank="S"
+elif accuracy>=90:
+    rank="A"
+elif accuracy>=80:
+    rank="B"
+elif accuracy>=70:
+    rank="C"
+elif accuracy>=60:
+    rank="D"
+
+score_text=font.render(f"Score: {score}",True,(255,255,255))
+combo_text=font.render(f"Combo: {combo}",True,(255,255,255))
+acc_text=font.render(f"Acc: {accuracy:.2f}%",True,(255,255,255))
+rank_text=font.render(f"Rank: {rank}",True,(255,255,0))
+
+screen.blit(score_text,(20,20))
+screen.blit(combo_text,(20,60))
+screen.blit(acc_text,(20,100))
+screen.blit(rank_text,(20,140))
 
 # ==============================
 # Boot
@@ -915,3 +1167,9 @@ if __name__=="__main__":
 
         if current_state==STATE_GAME:
             game_loop()
+
+        if current_state==STATE_SETTINGS:
+            settings_loop()
+
+        if current_state==STATE_DIFF_SELECT:
+            diff_select_loop()
