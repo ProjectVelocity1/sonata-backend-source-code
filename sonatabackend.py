@@ -1,11 +1,18 @@
-import os
-import sys
-import zipfile
-import requests
-import pygame
-import yaml
+import os, sys, zipfile, requests, pygame, yaml, shutil, sys
 from pathlib import Path
-import shutil
+
+if sys.platform.startswith("win"):
+    import tkinter as tk
+    subprocess = None
+elif sys.platform.startswith("linux"):
+    import subprocess
+    tk = None
+elif sys.platform.startswith("darwin"): # idk what to do with this yet
+    import subprocess
+    tk = None
+else:
+    subprocess = None
+    tk = None
 
 # ==============================
 # Directories
@@ -49,6 +56,36 @@ ETTERNA_DIR = None
 # Song Source Detection
 # ==============================
 
+def ask_folder_path(game_title: str = "that unknown game idk about") -> Path | None:
+    dir_path = None
+    dialog_title = f"Please choose a folder path for {game_title}"
+
+    # Windows (Tkinter)
+    if tk:
+        root = tk.Tk()
+        root.withdraw()
+        dir_path = Path(tk.filedialog.askdirectory(title=dialog_title))
+
+    # Linux (subprocess)
+    elif subprocess:
+        for cmd in [
+            ["kdialog", "--getexistingdirectory", ".", "--title", dialog_title], # KDE
+            ["flatpak-spawn", "--host", "kdialog", "--getexistingdirectory", ".", "--title", dialog_title], # KDE (if ran from Flatpak)
+            ["zenity", "--file-selection", "--directory", "--title", dialog_title] # Anything else (GTK)
+            #["xdg-open", "."]  # fallback, opens file manager but not interactive, idk if i'm keeping this
+        ]:
+            try:
+                result = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+                if result:
+                    dir_path = Path(result)
+                break
+            except FileNotFoundError:
+                continue
+            except subprocess.CalledProcessError:
+                break
+
+    return dir_path
+
 def detect_song_sources():
 
     global OSU_DIR, QUAVER_DIR, ETTERNA_DIR
@@ -58,18 +95,24 @@ def detect_song_sources():
             OSU_DIR = p
             print("Detected osu! Songs:", p)
             break
+    if not OSU_DIR:
+        OSU_DIR = ask_folder_path('osu!')
 
     for p in POSSIBLE_QUAVER_DIRS:
         if p.exists():
             QUAVER_DIR = p
             print("Detected Quaver Songs:", p)
             break
+    if not QUAVER_DIR:
+        QUAVER_DIR = ask_folder_path('Quaver')
 
     for p in POSSIBLE_ETTERNA_DIRS:
         if p.exists():
             ETTERNA_DIR = p
             print("Detected Etterna Songs:", p)
             break
+    if not ETTERNA_DIR:
+        ETTERNA_DIR = ask_folder_path('Etterna')
 
 
 # ==============================
@@ -99,35 +142,29 @@ def import_skins():
                 shutil.copy(item, dest / item.name)
 
 # ==============================
-# Advanced Skin Importer (Default Circle Skin)
+# Advanced Skin Importer
 # ==============================
 
 CURRENT_SKIN = None
+# Default fallback skin
 DEFAULT_SKIN_IMAGES = {}
-SKIN_IMAGES = DEFAULT_SKIN_IMAGES.copy()
 
 def create_default_skin():
     global DEFAULT_SKIN_IMAGES
     
-    # ---------------- CIRCULAR NOTE ----------------
-    note = pygame.Surface((60,60), pygame.SRCALPHA)
-    pygame.draw.circle(note, (107,33,255), (30,30), 28)
+    note = pygame.Surface((60,20), pygame.SRCALPHA)
+    pygame.draw.ellipse(note, (107,33,255), note.get_rect())
     DEFAULT_SKIN_IMAGES["Note"] = note
 
-    # ---------------- CIRCULAR RECEPTOR ----------------
-    receptor = pygame.Surface((60,60), pygame.SRCALPHA)
-    pygame.draw.circle(receptor, (255,255,255), (30,30), 28, 4)
+    receptor = pygame.Surface((60,10), pygame.SRCALPHA)
+    pygame.draw.ellipse(receptor, (255,255,255), receptor.get_rect())
     DEFAULT_SKIN_IMAGES["Receptor"] = receptor
 
-    # ---------------- HOLD NOTE ----------------
     hold = pygame.Surface((60,20), pygame.SRCALPHA)
-    pygame.draw.rect(hold,(160,80,255), hold.get_rect(), border_radius=8)
+    pygame.draw.rect(hold,(160,80,255), hold.get_rect())
     DEFAULT_SKIN_IMAGES["Hold"] = hold
 
 create_default_skin()
-
-# ---------------- fallback SKIN_IMAGES so it’s always defined
-SKIN_IMAGES = DEFAULT_SKIN_IMAGES.copy()
 
 def import_all_skins():
 
@@ -290,7 +327,6 @@ def load_skin(skin_folder):
 
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 
-
 def install_ffmpeg():
 
     if (FFMPEG_DIR / "ffmpeg.exe").exists():
@@ -319,35 +355,6 @@ def install_ffmpeg():
                 shutil.move(src, FFMPEG_DIR / "ffmpeg.exe")
 
     print("FFmpeg installed")
-
-def load_audio_with_timewarp(audio_path, timewarp):
-    """
-    Returns a pygame.mixer.Sound object that is resampled
-    according to timewarp. Uses FFmpeg to process the file.
-    """
-    import subprocess
-    import tempfile
-
-    # output temp file
-    tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    tmp_path = tmp_file.name
-    tmp_file.close()
-
-    # FFmpeg command to change speed/pitch
-    # atempo only supports 0.5x - 2.0x, so clamp
-    tw = max(0.5, min(timewarp, 2.0))
-
-    cmd = [
-        str(FFMPEG_DIR / "ffmpeg.exe"),
-        "-y",
-        "-i", str(audio_path),
-        "-filter:a", f"atempo={tw}",
-        "-vn",
-        tmp_path
-    ]
-
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return pygame.mixer.Sound(tmp_path)
 
 # ==============================
 # Chart Structure
@@ -625,7 +632,7 @@ def scan_all_games():
 
                     break
 
-    print("\nScan complete.")
+    print("Scan complete.")
     print("Total imported:", imported)
 
 # ==============================
@@ -651,9 +658,6 @@ clock = pygame.time.Clock()
 STATE_MENU = "menu"
 STATE_SELECT = "select"
 STATE_GAME = "game"
-STATE_SETTINGS = "settings"
-STATE_DIFF_SELECT = "diff_select"
-STATE_RESULTS = "results"
 
 current_state = STATE_MENU
 
@@ -829,41 +833,34 @@ def settings_loop():
         clock.tick(60)
 
 # ==============================
-# Song Select + Timewarp + Diff Select (Fixed Boot)
+# Song Select
 # ==============================
-timewarp = 1.0  # default
-selected_song = 0
-selected_diff = 0
-current_chart = None
-songs_list = []
 diff_list = []
+selected_diff = 0
+scroll_offset = 0  # New variable for scrolling
+VISIBLE_COUNT = 10 # Number of songs visible at once
 
 def select_loop():
-    global current_state, selected_song, current_chart, timewarp
+    global current_state, selected_song, current_chart, scroll_offset
 
     load_songs()
 
     while current_state == STATE_SELECT:
         screen.fill((10,10,10))
 
-        # ---- SCROLL LOGIC ----
-        page_size = 10
-        start_index = max(0, selected_song - page_size//2)
-        end_index = min(len(songs_list), start_index + page_size)
-        if end_index - start_index < page_size:
-            start_index = max(0, end_index - page_size)
+        # Adjust scroll offset to keep selected_song visible
+        if selected_song < scroll_offset:
+            scroll_offset = selected_song
+        elif selected_song >= scroll_offset + VISIBLE_COUNT:
+            scroll_offset = selected_song - VISIBLE_COUNT + 1
 
-        for i in range(start_index, end_index):
+        # Draw only visible songs
+        for i in range(scroll_offset, min(scroll_offset + VISIBLE_COUNT, len(songs_list))):
             folder, name = songs_list[i]
             prefix = "> " if i == selected_song else ""
             text = font.render(prefix + name, True, (107,33,255))
-            screen.blit(text, (100, 200 + (i-start_index)*40))
+            screen.blit(text, (100, 200 + (i - scroll_offset) * 40))
 
-        # ---- TIMEWARP DISPLAY ----
-        tw_text = font.render(f"Timewarp: {timewarp:.2f}x", True, (255,255,255))
-        screen.blit(tw_text, (600, 200))
-
-        # ---- INPUT ----
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -877,309 +874,288 @@ def select_loop():
                 if event.key == pygame.K_UP and selected_song > 0:
                     selected_song -= 1
 
-                if event.key == pygame.K_DOWN and selected_song < len(songs_list)-1:
+                if event.key == pygame.K_DOWN and selected_song < len(songs_list) - 1:
                     selected_song += 1
 
-                # LEFT/RIGHT arrows change timewarp
-                if event.key == pygame.K_LEFT:
-                    timewarp = max(0.5, timewarp - 0.05)
-                if event.key == pygame.K_RIGHT:
-                    timewarp = min(2.0, timewarp + 0.05)
-
-                if event.key in [pygame.K_RETURN, pygame.K_KP_ENTER]:
+                if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
                     folder = songs_list[selected_song][0]
                     diff_list.clear()
                     for file in folder.glob("*"):
-                        if file.suffix.lower() in [".osu",".qua",".sm"]:
+                        if file.suffix.lower() in [".osu", ".qua", ".sm"]:
                             diff_list.append(file)
+
                     if diff_list:
                         selected_diff = 0
-                        current_chart = load_chart(diff_list[selected_diff])
                         current_state = STATE_DIFF_SELECT
+                        current_chart = load_chart(diff_list[0])
+                        break
+
+                    current_state = STATE_GAME
 
         pygame.display.flip()
         clock.tick(60)
 
 def diff_select_loop():
+
     global current_state, selected_diff, current_chart
 
-    folder = songs_list[selected_song][0]
+    folder=songs_list[selected_song][0]
 
-    while current_state == STATE_DIFF_SELECT:
+    while current_state==STATE_DIFF_SELECT:
+
         screen.fill((20,20,20))
 
-        # show diff list
-        for i, file in enumerate(diff_list):
-            prefix = "> " if i == selected_diff else ""
-            text = font.render(prefix + file.stem, True, (107,33,255))
-            screen.blit(text, (120, 200 + i*40))
+        for i,file in enumerate(diff_list):
 
-        # show timewarp too
-        tw_text = font.render(f"Timewarp: {timewarp:.2f}x", True, (255,255,0))
-        screen.blit(tw_text, (120, 150))
+            name=file.stem
+            prefix="> " if i==selected_diff else ""
+
+            text=font.render(prefix+name,True,(107,33,255))
+            screen.blit(text,(120,200+i*40))
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+
+            if event.type==pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    current_state = STATE_SELECT
+
+            if event.type==pygame.KEYDOWN:
+
+                if event.key==pygame.K_ESCAPE:
+                    current_state=STATE_SELECT
                     return
-                if event.key == pygame.K_UP:
-                    selected_diff = max(0, selected_diff - 1)
-                if event.key == pygame.K_DOWN:
-                    selected_diff = min(len(diff_list) - 1, selected_diff + 1)
-                if event.key in [pygame.K_RETURN, pygame.K_KP_ENTER]:
-                    current_chart = load_chart(diff_list[selected_diff])
-                    if current_chart is None:
-                        print("Error: chart failed to load!")
-                        current_state = STATE_SELECT
-                        return
-                    current_state = STATE_GAME
+
+                if event.key==pygame.K_UP and selected_diff>0:
+                    selected_diff-=1
+
+                if event.key==pygame.K_DOWN and selected_diff<len(diff_list)-1:
+                    selected_diff+=1
+
+                if event.key==pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+
+                    chart_file=diff_list[selected_diff]
+                    current_chart=load_chart(chart_file)
+                    current_state=STATE_GAME
 
         pygame.display.flip()
         clock.tick(60)
-       
-# ==============================
-# SPP Calculation 
-# ==============================
-
-def calculate_spp(score, accuracy, note_count, timewarp=1.0):
-
-    score_factor = score / 1_000_000            # normalized score
-    acc_bonus = (accuracy / 100) ** 4          # accuracy power curve
-    density = min(note_count / 1000, 2)        # note density factor
-
-    # timewarp multiplier
-    # easier if <1.0, harder if >1.0, clamped 0.5x - 2x
-    tw_mult = max(0.5, min(timewarp, 2.0))
-
-    # SPP formula
-    spp = 120 * score_factor * acc_bonus * density * tw_mult
-
-    return round(spp, 2)
 
 # ==============================
-# Gameplay (Circle Skin + Countdown + Timewarp)
+# Gameplay
 # ==============================
-import numpy as np
-import pygame.sndarray
-
-def load_audio_with_timewarp(file_path, timewarp):
-    """Load audio as pygame.Sound and apply timewarp correctly."""
-    sound = pygame.mixer.Sound(str(file_path))
-    arr = pygame.sndarray.array(sound).astype(np.float32)
-
-    # Resample array to match the timewarp correctly
-    indices = np.arange(0, len(arr), timewarp)
-    indices = indices[indices < len(arr)].astype(np.int32)
-    warped_arr = arr[indices]
-
-    warped_sound = pygame.sndarray.make_sound(warped_arr.astype(np.int16))
-    return warped_sound
 
 def game_loop():
+
     global score, combo, max_combo
     global marv, perf, great, good, miss
+
+    score = 0
+    combo = 0
+    max_combo = 0
+
+    marv = 0
+    perf = 0
+    great = 0
+    good = 0
+    miss = 0
+
     global current_state
 
-    score = combo = max_combo = 0
-    marv = perf = great = good = miss = 0
+    chart=current_chart
 
-    chart = current_chart
-    folder = songs_list[selected_song][0]
+    folder=songs_list[selected_song][0]
 
-    # load audio
-    audio_file = None
+    audio=None
+
     for f in folder.iterdir():
-        if f.name == chart.audio:
-            audio_file = f
-            break
+        if f.name==chart.audio:
+            audio=f
 
-    # load background
-    bg = None
+    if audio:
+        pygame.mixer.music.load(audio)
+        pygame.mixer.music.play()
+
+    bg=None
+
     if chart.bg:
-        bg_path = folder / chart.bg
+        bg_path=folder/chart.bg
         if bg_path.exists():
-            bg = pygame.image.load(bg_path)
-            bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
+            bg=pygame.image.load(bg_path)
+            bg=pygame.transform.scale(bg,(WIDTH,HEIGHT))
 
-    keys = [pygame.K_d, pygame.K_f, pygame.K_j, pygame.K_k]
-    hit_windows = {"MARV":22,"PERFECT":45,"GREAT":90,"GOOD":135}
-    judgement = ""
-    hit_notes = set()
+    start=pygame.time.get_ticks()
 
-    scroll_speed = settings["scroll_speed"]
+    keys=[pygame.K_d,pygame.K_f,pygame.K_j,pygame.K_k]
 
-    # ------------------ 3-second countdown ------------------
-    countdown_start = pygame.time.get_ticks()
-    countdown_done = False
-    start_time = None
-    audio_playing = None
+    hit_windows={
+        "MARV":22,
+        "PERFECT":45,
+        "GREAT":90,
+        "GOOD":135
+    }
 
-    while current_state == STATE_GAME:
-        screen.fill((0,0,0))
+    judgement=""
+    hit_notes=set()
+
+    while current_state==STATE_GAME:
+
         if bg:
-            screen.blit(bg, (0,0))
+            screen.blit(bg,(0,0))
+        else:
+            screen.fill((0,0,0))
 
-        current_time = pygame.time.get_ticks() - countdown_start
+        current_time=pygame.time.get_ticks()-start
 
-        # show countdown
-        if not countdown_done:
-            remaining = 3 - current_time // 1000
-            if remaining > 0:
-                text = font.render(f"{remaining}", True, (255,255,255))
-                screen.blit(text, (WIDTH//2-20, HEIGHT//2-20))
-                pygame.display.flip()
-                clock.tick(60)
-                continue
-            else:
-                countdown_done = True
-                # start music with correct timewarp
-                if audio_file:
-                    try:
-                        audio_playing = load_audio_with_timewarp(audio_file, timewarp)
-                        audio_playing.play()
-                    except Exception as e:
-                        print("Audio failed to load with timewarp:", e)
-                start_time = pygame.time.get_ticks()
-                continue
-
-        # elapsed time for notes (map)
-        elapsed = (pygame.time.get_ticks() - start_time) * timewarp
-
-        # detect end of map
-        last_note = max([t for t,_ in chart.notes], default=0)
-        last_ln = max([e for _,e,_ in chart.lns], default=0)
-        end_time = max(last_note, last_ln)
-        if elapsed > end_time + 3000:
-            if audio_playing:
-                audio_playing.stop()
-            current_state = STATE_RESULTS
-            return
-
-        # draw receptors
         for i in range(chart.keys):
-            receptor_img = SKIN_IMAGES.get("Receptor", DEFAULT_SKIN_IMAGES["Receptor"])
-            screen.blit(receptor_img, (200+i*80, HEIGHT-120))
 
-        # draw notes
+            pygame.draw.rect(
+                screen,
+                (200,200,200),
+                (200+i*80,HEIGHT-120,60,10)
+            )
+
+        scroll_speed=0.6
+
         for i,(time,col) in enumerate(chart.notes):
+
             if i in hit_notes:
                 continue
-            y = HEIGHT-120-(time-elapsed)*scroll_speed
-            if y > HEIGHT:
+
+            y=HEIGHT-120-(time-current_time)*scroll_speed
+
+            if y>HEIGHT:
                 continue
-            note_img = SKIN_IMAGES.get("Note", DEFAULT_SKIN_IMAGES["Note"])
-            screen.blit(note_img, (200+col*80, y))
 
-            if elapsed - time > 150:
-                judgement = "MISS"
+            pygame.draw.rect(
+                screen,
+                (107,33,255),
+                (200+col*80,y,60,20)
+            )
+
+            if current_time-time>150:
+                judgement="MISS"
                 hit_notes.add(i)
-                combo = 0
-                miss += 1
+                combo=0
+                miss+=1
 
-        # draw hold notes
         for start_ln,end_ln,col in chart.lns:
-            y1 = HEIGHT-120-(start_ln-elapsed)*scroll_speed
-            y2 = HEIGHT-120-(end_ln-elapsed)*scroll_speed
-            hold_img = SKIN_IMAGES.get("Hold", DEFAULT_SKIN_IMAGES["Hold"])
-            hold_scaled = pygame.transform.scale(hold_img, (60, max(1, int(y2-y1))))
-            screen.blit(hold_scaled, (200+col*80, y1))
 
-        # show judgement text
+            y1=HEIGHT-120-(start_ln-current_time)*scroll_speed
+            y2=HEIGHT-120-(end_ln-current_time)*scroll_speed
+
+            pygame.draw.rect(
+                screen,
+                (160,80,255),
+                (200+col*80,y1,60,y2-y1)
+            )
+
         if judgement:
-            text = font.render(judgement, True, (255,255,255))
-            screen.blit(text, (WIDTH//2-60, HEIGHT//2))
 
-        # input
+            text=font.render(judgement,True,(255,255,255))
+            screen.blit(text,(WIDTH//2-60,HEIGHT//2))
+
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                if audio_playing:
-                    audio_playing.stop()
+
+            if event.type==pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    if audio_playing:
-                        audio_playing.stop()
-                    current_state = STATE_SELECT
+
+            if event.type==pygame.KEYDOWN:
+
+                if event.key==pygame.K_ESCAPE:
+
+                    pygame.mixer.music.stop()
+                    current_state=STATE_SELECT
                     return
 
                 for col,key in enumerate(keys):
-                    if event.key == key:
+
+                    if event.key==key:
+
                         for i,(time,ncol) in enumerate(chart.notes):
-                            if ncol != col or i in hit_notes:
+
+                            if ncol!=col or i in hit_notes:
                                 continue
-                            diff = abs(elapsed - time)
+
+                            diff=abs(current_time-time)
+
                             for j,w in hit_windows.items():
-                                if diff <= w:
-                                    judgement = j
+
+                                if diff<=w:
+
+                                    judgement=j
                                     hit_notes.add(i)
+
                                     if j == "MARV":
-                                        score += 1000; marv += 1; combo += 1
+                                        score+=1000
+                                        marv+=1
+                                        combo+=1
+
                                     elif j == "PERFECT":
-                                        score += 800; perf += 1; combo += 1
+                                        score+=800
+                                        perf+=1
+                                        combo+=1
+
                                     elif j == "GREAT":
-                                        score += 500; great += 1; combo += 1
+                                        score+=500
+                                        great+=1
+                                        combo+=1
+
                                     elif j == "GOOD":
-                                        score += 200; good += 1; combo += 1
-                                    max_combo = max(max_combo, combo)
+                                        score +=200
+                                        great+=1
+                                        combo+=1
+                                    max_combo=max(max_combo,combo)
                                     break
+
                             break
 
         pygame.display.flip()
         clock.tick(120)
 
-# ==============================
-# Results Loop
-# ==============================
-def results_loop():
-    global current_state
+score = 0
+combo = 0
+max_combo = 0
+marv = 0
+perf = 0
+great = 0
+good = 0
+miss = 0
 
-    total_hits = marv + perf + great + good + miss
-    if total_hits > 0:
-        accuracy = ((marv*1.0 + perf*0.9 + great*0.7 + good*0.4)/total_hits)*100
-    else:
-        accuracy = 100
+total_hits = marv+perf+great+good+miss
 
-    note_count = len(current_chart.notes) + len(current_chart.lns)
-    spp = calculate_spp(score, accuracy, note_count, timewarp)
+if total_hits>0:
+    accuracy = (
+        (marv*1.0 + perf*0.9 + great*0.7 + good*0.4)
+        / total_hits
+    )*100
+else:
+    accuracy=100
 
-    while current_state == STATE_RESULTS:
-        screen.fill((10,10,10))
+rank="F"
 
-        lines = [
-            f"Score: {score}",
-            f"Accuracy: {accuracy:.2f}%",
-            f"SPP: {spp}",
-            f"Timewarp: {timewarp:.2f}x",
-            "",
-            f"Marvelous: {marv}",
-            f"Perfect: {perf}",
-            f"Great: {great}",
-            f"Good: {good}",
-            f"Miss: {miss}",
-            "",
-            "Press ENTER to continue"
-        ]
+if accuracy>=99:
+    rank="SS"
+elif accuracy>=96:
+    rank="S"
+elif accuracy>=90:
+    rank="A"
+elif accuracy>=80:
+    rank="B"
+elif accuracy>=70:
+    rank="C"
+elif accuracy>=60:
+    rank="D"
 
-        for i, line in enumerate(lines):
-            text = font.render(line, True, (255,255,255))
-            screen.blit(text, (WIDTH//2-200, 200 + i*40))
+score_text=font.render(f"Score: {score}",True,(255,255,255))
+combo_text=font.render(f"Combo: {combo}",True,(255,255,255))
+acc_text=font.render(f"Acc: {accuracy:.2f}%",True,(255,255,255))
+rank_text=font.render(f"Rank: {rank}",True,(255,255,0))
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key in [pygame.K_RETURN, pygame.K_KP_ENTER]:
-                    current_state = STATE_SELECT
-                    return
-
-        pygame.display.flip()
-        clock.tick(60)
+screen.blit(score_text,(20,20))
+screen.blit(combo_text,(20,60))
+screen.blit(acc_text,(20,100))
+screen.blit(rank_text,(20,140))
 
 # ==============================
 # Boot
@@ -1210,6 +1186,3 @@ if __name__=="__main__":
 
         if current_state==STATE_DIFF_SELECT:
             diff_select_loop()
-
-        if current_state==STATE_RESULTS:
-            results_loop()
