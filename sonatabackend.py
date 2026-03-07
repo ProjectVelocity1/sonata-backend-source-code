@@ -6,6 +6,65 @@ import pygame
 import yaml
 from pathlib import Path
 import shutil
+from pypresence import Presence
+import time
+
+# ==============================
+# Discord RPC
+# ==============================
+
+CLIENT_ID = "1479950020294869012"
+
+RPC = None
+
+def start_rpc():
+    global RPC
+    try:
+        RPC = Presence(CLIENT_ID)
+        RPC.connect()
+        print("Discord RPC connected")
+    except Exception as e:
+        print("RPC failed:", e)
+
+def update_rpc(state="Menu", details="Idle", large_text="sonata_logo"):
+    if RPC is None:
+        return
+
+    try:
+        RPC.update(
+            state=state,
+            details=details,
+            large_image="sonata",
+            large_text=large_text,
+            start=time.time()
+        )
+    except:
+        pass
+
+def update_rpc_gameplay(chart, elapsed, end_time):
+
+    if RPC is None:
+        return
+
+    try:
+
+        progress = int((elapsed / end_time) * 100)
+        progress = max(0, min(100, progress))
+
+        RPC.update(
+            state="Playing Sonata",
+            details=f"{chart.artist} - {chart.title}",
+            large_image="sonata",
+            large_text="Sonata Rhythm Game",
+
+            small_image="play",
+            small_text=f"{chart.keys}K • {timewarp:.2f}x rate • {progress}% progress",
+
+            start=time.time() - (elapsed / 1000)
+        )
+
+    except:
+        pass
 
 # ==============================
 # Directories
@@ -710,6 +769,9 @@ def menu_loop():
 
     global menu_index, current_state
 
+    # ---- RPC UPDATE WHEN MENU OPENS ----
+    update_rpc("Menu", "Browsing menu")
+
     while current_state == STATE_MENU:
 
         screen.fill((20,20,20))
@@ -831,6 +893,8 @@ def settings_loop():
 # ==============================
 # Song Select + Timewarp + Diff Select (Fixed Boot)
 # ==============================
+
+update_rpc("Song Select", "Choosing a song")
 timewarp = 1.0  # default
 selected_song = 0
 selected_diff = 0
@@ -988,6 +1052,16 @@ def game_loop():
     marv = perf = great = good = miss = 0
 
     chart = current_chart
+
+    # ---- DISCORD RPC UPDATE ----
+    try:
+        update_rpc(
+            "Playing",
+            f"{chart.artist} - {chart.title} [{chart.diff}] | {chart.keys}K {timewarp:.2f}x"
+        )
+    except:
+        pass
+
     folder = songs_list[selected_song][0]
 
     # load audio
@@ -1053,6 +1127,7 @@ def game_loop():
         last_note = max([t for t,_ in chart.notes], default=0)
         last_ln = max([e for _,e,_ in chart.lns], default=0)
         end_time = max(last_note, last_ln)
+        update_rpc_gameplay(chart, elapsed, end_time)
         if elapsed > end_time + 3000:
             if audio_playing:
                 audio_playing.stop()
@@ -1146,6 +1221,10 @@ def results_loop():
 
     note_count = len(current_chart.notes) + len(current_chart.lns)
     spp = calculate_spp(score, accuracy, note_count, timewarp)
+    update_rpc(
+        "Results",
+        f"{current_chart.artist} - {current_chart.title} | Score {score}"
+    )
 
     while current_state == STATE_RESULTS:
         screen.fill((10,10,10))
@@ -1186,6 +1265,8 @@ def results_loop():
 # ==============================
 
 if __name__=="__main__":
+
+    start_rpc()
 
     install_ffmpeg()
     import_skins()
